@@ -20,11 +20,13 @@ function selector(str) {
 }
 
 function property(str) {
+	const prop = csstree.property(str)
+
 	return {
-		name: str,
-		isBrowserHack: false,
-		isVendorPrefixed: false,
-		isCustom: str.startsWith('--'),
+		name: str, // not `prop.name`, to maintain case sensitivity
+		isBrowserHack: Boolean(prop.hack),
+		isVendorPrefixed: Boolean(prop.vendor),
+		isCustom: prop.custom,
 		complexity: 0
 	}
 }
@@ -49,75 +51,69 @@ function atrule(atr, { key, declarations }) {
 	}
 }
 
-module.exports = (css, options = {}) => {
+const defaultOptions = {
+	throwOnSyntaxError: false
+}
+
+module.exports = (css, options = defaultOptions) => {
 	let rules = []
 	let atrules = []
 
-	return new Promise((resolve, reject) => {
-		const ast = csstree.parse(css, {
-			parseValue: false,
-			parseRulePrelude: false,
-			parseAtrulePrelude: false,
-			onParseError: function(error) {
-				reject(error)
+	const ast = csstree.parse(css, {
+		parseValue: false,
+		parseRulePrelude: false,
+		parseAtrulePrelude: false,
+		onParseError: function(error, fallbackNode) {
+			if (options.throwOnSyntaxError) {
+				throw error
 			}
-		})
-
-		csstree.walk(ast, {
-			visit: 'Rule',
-			enter(node, item, list) {
-				// SELECTORS
-				const _selectors = node.prelude.value
-					.split(',')
-					.filter(Boolean)
-					.map(s => s.trim())
-					.map(selector)
-
-				// DECLARATIONS
-				let _declarations = []
-				node.block.children.map(child => {
-					_declarations = [..._declarations, declaration(child)]
-				})
-
-				// THE RULE ITSELF
-				rules = [
-					...rules,
-					{
-						selectors: _selectors,
-						declarations: _declarations
-					}
-				]
-			}
-		})
-
-		csstree.walk(ast, {
-			visit: 'Atrule',
-			enter(node) {
-				let _key
-				let _declarations = []
-
-				node.block.children
-					.filter(c => c.type === 'Declaration')
-					.map(child => {
-						const dec = declaration(child)
-						_declarations = [..._declarations, dec]
-
-						if (dec.property.name === 'src') {
-							_key = dec.value
-						}
-					})
-
-				atrules = atrules.concat(
-					atrule(node, { key: _key, declarations: _declarations })
-				)
-			}
-		})
-
-		resolve({
-			atrules,
-			rules,
-			selectors: rules.map(rule => rule.selectors).flat(),
-			declarations: rules.map(rule => rule.declarations).flat()
-		})
+		}
 	})
+
+	csstree.walk(ast, {
+		visit: 'Rule',
+		enter(node, item, list) {
+			// SELECTORS
+			const _selectors = node.prelude.value
+				.split(',')
+				.filter(Boolean)
+				.map(s => s.trim())
+				.map(selector)
+
+			// DECLARATIONS
+			const declarations = csstree
+				.toPlainObject(node.block)
+				.children// Filter any optional broken nodes due to SyntaxErrors (Raw nodes)
+				.filter(child => child.type !== 'Raw')
+				.map(declaration)
+
+			// THE RULE ITSELF
+			rules = [
+				...rules,
+				{
+					selectors: _selectors,
+					declarations: declarations
+				}
+			]
+		}
+	})
+
+	csstree.walk(ast, {
+		visit: 'Atrule',
+		enter(node) {
+			const declarations = csstree
+				.toPlainObject(node.block)
+				.children.filter(child => child.type === 'Declaration')
+				.map(declaration)
+
+			atrules = atrules.concat(atrule(node, { declarations }))
+		}
+	})
+
+	return {
+		atrules,
+		rules,
+		selectors: rules.map(rule => rule.selectors).flat(),
+		declarations: rules.map(rule => rule.declarations).flat()
+	}
 }

@@ -1,16 +1,37 @@
 const test = require('ava')
 const analyze = require('../')
 
-test('rejects on error', async t => {
-	await t.throwsAsync(
+test('does not throw on syntax error', t => {
+	t.notThrows(() =>
 		analyze(`
 		a { color red }
 	`)
 	)
+
+	t.notThrows(() =>
+		analyze(`
+		{}
+	`)
+	)
 })
 
-test('multiple selectors', async t => {
-	const actual = await analyze(`
+test('it throws on syntax errors when we ask it to', t => {
+	const error = t.throws(
+		() =>
+			analyze(
+				`
+		a { color red }
+	`,
+				{ throwOnSyntaxError: true }
+			),
+		{ instanceOf: SyntaxError }
+	)
+
+	t.is(error.message, 'Colon is expected')
+})
+
+test('multiple selectors', t => {
+	const actual = analyze(`
 		.h1,
 		h2 {
 			color: blue;
@@ -23,8 +44,8 @@ test('multiple selectors', async t => {
 	)
 })
 
-test('selector list with comments', async t => {
-	const actual = await analyze(`
+test('selector list with comments', t => {
+	const actual = analyze(`
 		#a,
 		/* COMMENT */
 		b {
@@ -41,8 +62,8 @@ test('selector list with comments', async t => {
 	)
 })
 
-test('selector with trailing comma', async t => {
-	const actual = await analyze(`
+test('selector with trailing comma', t => {
+	const actual = analyze(`
 		h1, {
 			color: blue;
 		}
@@ -53,9 +74,8 @@ test('selector with trailing comma', async t => {
 	)
 })
 
-test('declaration - importants', async t => {
-	const actual = (
-		await analyze(`
+test('declaration - importants', t => {
+	const actual = analyze(`
 		a {
 			color: red;
 			color: red !important;
@@ -66,30 +86,27 @@ test('declaration - importants', async t => {
 		}
 
 		b{color:red!important}
-	`)
-	).declarations.map(d => d.isImportant)
+	`).declarations.map(d => d.isImportant)
 
 	const expected = [false, true, true, true, true, false, true]
 	t.deepEqual(actual, expected)
 })
 
-test('properties', async t => {
-	const actual = (
-		await analyze(`
+test('properties', t => {
+	const actual = analyze(`
 		a {
 			color: red;
 			-webkit-box-shadow: 0 0 0 #000;
 			_background: green;
 			*zoom: 1;
 		}
-	`)
-	).declarations.map(({ property }) => property.name)
+	`).declarations.map(({ property }) => property.name)
 
 	t.deepEqual(actual, ['color', '-webkit-box-shadow', '_background', '*zoom'])
 })
 
-test('custom properties', async t => {
-	const actual = await analyze(`
+test('custom properties', t => {
+	const actual = analyze(`
 		a {
 			--root: 1em;
 			font-size: var(--root);
@@ -100,8 +117,8 @@ test('custom properties', async t => {
 	t.false(actual.declarations[1].property.isCustom)
 })
 
-test('rules - empty', async t => {
-	const actual = await analyze(`
+test('rules - empty', t => {
+	const actual = analyze(`
 		a{}
 		b { color: red }
 	`)
@@ -112,8 +129,8 @@ test('rules - empty', async t => {
 	)
 })
 
-test('@media', async t => {
-	const actual = await analyze(`
+test('@media', t => {
+	const actual = analyze(`
 		@media (min-width: 320px) {
 			a { content: 'a' }
 		}
@@ -138,8 +155,8 @@ test('@media', async t => {
 	t.true(actual.atrules.every(atrule => atrule.declarations.length === 0))
 })
 
-test('@keyframes', async t => {
-	const actual = await analyze(`
+test('@keyframes', t => {
+	const actual = analyze(`
 		@keyframes test {
 			from {
 				top: 0;
@@ -159,8 +176,8 @@ test('@keyframes', async t => {
 	t.true(actual.atrules.every(atrule => atrule.declarations.length === 0))
 })
 
-test('@font-face', async t => {
-	const actual = await analyze(`
+test('@font-face', t => {
+	const actual = analyze(`
 		@font-face {
 			src: url(URL);
 			font-family: 'Teko';
